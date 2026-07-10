@@ -1,12 +1,14 @@
+import Foundation
 import SwiftUI
-import Observation
 import Combine
-import AVFoundation
 
 enum AppPhase: Equatable {
-  case importing, editing, processing, done(outputURL: URL)
+  case importing
+  case editing
+  case processing
+  case done(outputURL: URL)
   
-  static func ==(lhs: AppPhase, rhs: AppPhase) -> Bool {
+  static func == (lhs: AppPhase, rhs: AppPhase) -> Bool {
     switch (lhs, rhs) {
     case (.importing, .importing), (.editing, .editing), (.processing, .processing):
       return true
@@ -18,10 +20,8 @@ enum AppPhase: Equatable {
   }
 }
 
-
-/// Whole-app state, injected as an environment object. Grows over time
-/// (wizard step, per-zone settings, etc.) - kept minimal here since this
-/// file only needs to own the loaded video.
+/// Whole-app state, injected as an environment object. Owns the loaded
+/// video, the current wizard step, all zone settings, and render progress.
 @MainActor
 final class ProjectState: ObservableObject {
   @Published var phase: AppPhase = .importing
@@ -29,44 +29,74 @@ final class ProjectState: ObservableObject {
   @Published var settings = ZoneSettings()
   @Published var importError: String?
   
+  @Published var wizardStep: Int = 1   // 1...5, mirrors the Python steps
+  @Published var renderProgress: Double = 0   // 0...1
+  @Published var renderStatusText: String = ""
+  @Published var renderError: String?
+  
   func loadVideo(from url: URL) {
     importError = nil
     Task {
       do {
-        let asset = AVURLAsset(url: url)
-        let tracks = try await asset.loadTracks(withMediaType: .video)
-        guard let track = tracks.first else {
-          importError = "This file has no video track."
-          return
-        }
+        let asset = try await VideoAsset.load(from: url)
         
-        let naturalSize = try await track.load(.naturalSize)
-        let transform = try await track.load(.preferredTransform)
-        let displaySize = naturalSize.applying(transform)
-        let size = CGSize(width: abs(displaySize.width), height: abs(displaySize.height))
-        let frameRate = try await track.load(.nominalFrameRate)
+        var freshSettings = ZoneSettings()
+        freshSettings.blur.mask.prepare(size: asset.naturalSize)
+        freshSettings.glitter.mask.prepare(size: asset.naturalSize)
+        freshSettings.glass.mask.prepare(size: asset.naturalSize)
         
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-        let firstFrame = try generator.copyCGImage(at: .zero, actualTime: nil)
-        
-        let videoAsset = VideoAsset(
-          url: url,
-          asset: asset,
-          naturalSize: size,
-          frameRate: frameRate,
-          firstFrame: firstFrame
-        )
-        
-        settings = ZoneSettings()
-        settings.blur.mask.prepare(size: size)
-        settings.glitter.mask.prepare(size: size)
-        settings.glass.mask.prepare(size: size)
-        
-        self.videoAsset = videoAsset
+        self.settings = freshSettings
+        self.videoAsset = asset
+        self.wizardStep = 1
+        self.phase = .editing
       } catch {
-        importError = "Could not open this video: \(error.localizedDescription)"
+        self.importError = error.localizedDescription
       }
     }
+  }
+  
+  func reset() {
+    videoAsset = nil
+    settings = ZoneSettings()
+    importError = nil
+    wizardStep = 1
+    renderProgress = 0
+    renderStatusText = ""
+    renderError = nil
+    phase = .importing
+  }
+  
+  func startProcessing() {
+    guard let videoAsset else { return }
+    phase = .processing
+    renderProgress = 0
+    renderError = nil
+    
+    Task {
+//      do {
+//        let outputURL = try Self.defaultOutputURL(for: videoAsset.url)
+//        let pipeline = EffectsPipeline(settings: settings)
+//        try await VideoProcessor.process(
+//          asset: videoAsset,
+//          pipeline: pipeline,
+//          outputURL: outputURL
+//        ) { [weak self] progress, status in
+//          Task { @MainActor in
+//            self?.renderProgress = progress
+//            self?.renderStatusText = status
+//          }
+//        }
+//        self.phase = .done(outputURL: outputURL)
+//      } catch {
+//        self.renderError = error.localizedDescription
+//        self.phase = .editing
+//      }
+    }
+  }
+  
+  private static func defaultOutputURL(for inputURL: URL) throws -> URL {
+    let base = inputURL.deletingPathExtension().lastPathComponent
+    let directory = inputURL.deletingLastPathComponent()
+    return directory.appendingPathComponent("\(base)_y2k.mp4")
   }
 }
