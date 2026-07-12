@@ -11,9 +11,9 @@ struct RootView: View {
       case .importing:
         ImportView()
       case .editing:
-        Text("wizard")
+        WizardView()
       case .processing, .done:
-        Text("processing")
+        ProcessingView()
       }
     }
     .animation(.easeInOut(duration: 0.25), value: projectState.phase)
