@@ -7,15 +7,15 @@ struct RootView: View {
   
   var body: some View {
     Group {
-      if projectState.videoAsset == nil {
+      switch projectState.phase {
+      case .importing:
         ImportView()
-      } else {
-        // WizardView() will replace this once the 5-step UI exists.
-        Text("Video loaded - wizard goes here next.")
-          .font(.title2)
-          .foregroundStyle(.secondary)
+      case .editing:
+        Text("wizard")
+      case .processing, .done:
+        Text("processing")
       }
     }
-    .animation(.easeInOut(duration: 0.25), value: projectState.videoAsset == nil)
+    .animation(.easeInOut(duration: 0.25), value: projectState.phase)
   }
 }

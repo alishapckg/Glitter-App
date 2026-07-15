@@ -3,12 +3,28 @@ import Observation
 import Combine
 import AVFoundation
 
+enum AppPhase: Equatable {
+  case importing, editing, processing, done(outputURL: URL)
+  
+  static func ==(lhs: AppPhase, rhs: AppPhase) -> Bool {
+    switch (lhs, rhs) {
+    case (.importing, .importing), (.editing, .editing), (.processing, .processing):
+      return true
+    case (.done(let a), .done(let b)):
+      return a == b
+    default:
+      return false
+    }
+  }
+}
+
 
 /// Whole-app state, injected as an environment object. Grows over time
 /// (wizard step, per-zone settings, etc.) - kept minimal here since this
 /// file only needs to own the loaded video.
 @MainActor
 final class ProjectState: ObservableObject {
+  @Published var phase: AppPhase = .importing
   @Published var videoAsset: VideoAsset?
   @Published var settings = ZoneSettings()
   @Published var importError: String?
